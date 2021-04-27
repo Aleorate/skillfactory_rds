@@ -1,0 +1,8 @@
+Project_6_Car_price_prediction
+
+Проект состоит из двух отдельных частей:
+1) Ноутбук на гитхаб (Projct_6_parse) с кодом парсинга данных сайта auto.ru;
+2) Ноутбук на Kaggle с данными и их последующей обработкой данных и созданием модели.
+Ссылка на Kaggle:
+https://www.kaggle.com/aleorate/sf-dst-car-price-prediction-aleorate/
+Проект выполнялся в одиночку.
