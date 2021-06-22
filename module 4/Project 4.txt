@@ -1,0 +1,323 @@
+База данных содержит список аэропортов практически всех крупных городов России. В большинстве городов есть только один аэропорт. Исключение составляет:
+SELECT a.city,
+       count(a.airport_name)
+FROM dst_project.airports a
+GROUP BY a.city
+ORDER BY count(a.airport_name) DESC
+
+Таблица рейсов содержит всю информацию о прошлых, текущих и запланированных рейсах. Сколько всего статусов для рейсов определено в таблице?
+SELECT a.city,
+       count(a.city)
+FROM dst_project.airports a
+GROUP BY a.city
+ORDER BY count(a.city) DESC
+
+Какое количество самолетов находятся в воздухе на момент среза в базе (статус рейса «самолёт уже вылетел и находится в воздухе»).
+SELECT f.status,
+       count(f.status)
+FROM dst_project.flights f
+GROUP BY f.status
+
+Места определяют схему салона каждой модели. Сколько мест имеет самолет модели 773 (Boeing 777-300)?
+SELECT DISTINCT count(s.seat_no)
+FROM dst_project.seats s
+WHERE s.aircraft_code = '773'
+
+Сколько состоявшихся (фактических) рейсов было совершено между 1 апреля 2017 года и 1 сентября 2017 года?
+SELECT count(*)
+FROM dst_project.flights f
+WHERE f.status = 'Arrived'
+  AND f.actual_arrival > '2017-04-01'
+  AND f.actual_arrival < '2017-09-01'
+
+Сколько всего рейсов было отменено по данным базы?
+SELECT count(*)
+FROM dst_project.flights f
+WHERE status = 'Cancelled'
+
+Сколько самолетов моделей типа Boeing, Sukhoi Superjet, Airbus находится в базе авиаперевозок?
+SELECT DISTINCT count(*)
+FROM dst_project.aircrafts a
+WHERE a.model like '%Boeing%'
+  OR a.model like '%Sukhoi Superjet%'
+  OR a.model like '%Airbus%'
+
+В какой части (частях) света находится больше аэропортов?
+WITH asia AS
+  (SELECT count(a.timezone) asian_airports
+   FROM dst_project.airports a
+   WHERE a.timezone like 'Asia%' ),
+     europe AS
+  (SELECT count(a.timezone) european_airports
+   FROM dst_project.airports a
+   WHERE a.timezone like 'Europe%' ),
+     australia AS
+  (SELECT count(a.timezone) australian_airports
+   FROM dst_project.airports a
+   WHERE a.timezone like 'Australia%' )
+SELECT asi.asian_airports,
+       eur.european_airports,
+       aus.australian_airports
+FROM asia asi,
+     europe eur,
+     australia aus
+
+В какой части (частях) света находится больше аэропортов?
+SELECT f.flight_id,
+       f.actual_arrival-f.scheduled_arrival arrival_difference
+FROM dst_project.flights f
+WHERE f.actual_arrival != f.scheduled_arrival
+ORDER BY arrival_difference DESC
+LIMIT 1
+
+Когда был запланирован самый первый вылет, сохраненный в базе данных?
+SELECT f.scheduled_departure
+FROM dst_project.flights f
+ORDER BY f.scheduled_departure ASC
+LIMIT 1
+
+Сколько минут составляет запланированное время полета в самом длительном рейсе?
+SELECT f.scheduled_arrival-f.scheduled_departure flight_time
+FROM dst_project.flights f
+ORDER BY f.scheduled_arrival-f.scheduled_departure DESC
+LIMIT 1
+
+Между какими аэропортами пролегает самый длительный по времени запланированный рейс?
+SELECT f.departure_airport,
+       f.arrival_airport
+FROM dst_project.flights f
+ORDER BY f.scheduled_arrival-f.scheduled_departure DESC
+LIMIT 1
+
+Сколько составляет средняя дальность полета среди всех самолетов в минутах? Секунды округляются в меньшую сторону (отбрасываются до минут).
+SELECT avg(f.scheduled_arrival - f.scheduled_departure)
+FROM dst_project.flights f
+
+Мест какого класса у SU9 больше всего?
+SELECT s.aircraft_code,
+       max(s.fare_conditions)
+FROM dst_project.seats s
+WHERE s.aircraft_code = 'SU9'
+GROUP BY s.aircraft_code
+
+Какую самую минимальную стоимость составило бронирование за всю историю?
+SELECT b.total_amount
+FROM dst_project.bookings b
+ORDER BY b.total_amount
+LIMIT 1
+
+Какой номер места был у пассажира с id = 4313 788533?
+SELECT seat_no
+FROM dst_project.tickets t
+JOIN dst_project.boarding_passes bp ON t.ticket_no = bp.ticket_no
+WHERE passenger_id = '4313 788533'
+
+Анапа — курортный город на юге России. Сколько рейсов прибыло в Анапу за 2017 год?
+SELECT count(*)
+FROM dst_project.flights
+WHERE arrival_airport = 'AAQ'
+  AND (date_trunc('year', actual_arrival) = '2017-01-01')
+  AND status not in ('Cancelled')
+
+Сколько рейсов из Анапы вылетело зимой 2017 года?
+SELECT count(*)
+FROM dst_project.flights
+WHERE departure_airport = 'AAQ'
+  AND (date_trunc('month', scheduled_departure) in ('2017-01-01','2017-02-01', '2017-12-01'))
+  AND status not in ('Cancelled')
+
+Сколько рейсов из Анапы не летают в Москву?
+SELECT count(f.flight_no)
+FROM dst_project.flights f
+WHERE arrival_airport not in ('SVO',
+                              'VKO',
+                              'DME')
+  AND f.departure_airport = 'AAQ'
+
+Какая модель самолета летящего на рейсах из Анапы имеет больше всего мест?
+SELECT a.model,
+       count(tf.fare_conditions)
+FROM dst_project.ticket_flights tf
+JOIN dst_project.flights f ON f.flight_id = tf.flight_id
+JOIN dst_project.aircrafts a ON a.aircraft_code = f.aircraft_code
+WHERE departure_airport = 'AAQ'
+GROUP BY a.model
+ORDER BY count(tf.fare_conditions) DESC
+
+
+Проект
+/*Для начала отсеим из всех рейсов - рейсы 2017 года.*/ 
+WITH all_2017_flights AS
+  (SELECT f.flight_id,
+          f.aircraft_code,
+          f.scheduled_arrival-f.scheduled_departure dif_time
+   FROM dst_project.flights f
+   WHERE date_trunc('year', f.scheduled_departure) in ('2017-01-01')
+     AND status not in ('Cancelled') ), 
+/*Переведем время полета из интервала в количество минут. Также почитаем суммарную выручку
+с билетов по каждому рейсу.*/ 
+   original_all_flights AS
+  (SELECT af.flight_id,
+          extract(MINUTE
+                  FROM af.dif_time) + extract(HOUR
+                                              FROM af.dif_time)*60 total_minutes,
+          sum(tf.amount) sum_proceeds,
+          a.model
+   FROM all_2017_flights af
+   JOIN dst_project.ticket_flights tf ON af.flight_id = tf.flight_id
+   JOIN dst_project.aircrafts a ON af.aircraft_code = a.aircraft_code
+   GROUP BY af.flight_id,
+            total_minutes,
+            a.model
+   ORDER BY sum_proceeds), 
+/*далее рассчитаем цену за минуту полета самолета, учтем, что самолеты потребляют
+ разное количество топлива в минуту (к доступному расстоянию(range) я привязался
+ исключительно для удобства и простоты(узнав сколько в минуту потребляет самолет,
+ я разделил значение range на число такое, чтобы получился нужный мне расход)),
+ цену за килограм топлива я взял равной 41 рублям, такая цена указана на сайте
+ favt.gov.ru в Анапе в январе 2017 года.
+ Все данные по расходу самолетами топлива взяты с одного сайта, кроме данных по
+ Cessna 208 Caravan. Это небольшой пассажирский самолет,
+ данные по нему было найти особенно сложно.*/ 
+   fuel_all_cost AS
+  (SELECT a.model,
+          41*a.range/106 cost_per_minute
+   FROM dst_project.aircrafts a
+   WHERE model = 'Sukhoi Superjet-100'
+   UNION ALL SELECT a.model,
+                    41*a.range/105 cost_per_minute
+   FROM dst_project.aircrafts a
+   WHERE model = 'Boeing 737-300'
+   UNION ALL SELECT a.model,
+                    41*a.range/85 cost_per_minute
+   FROM dst_project.aircrafts a
+   WHERE model = 'Boeing 777-300'
+   UNION ALL SELECT a.model,
+                    41*a.range/99 cost_per_minute
+   FROM dst_project.aircrafts a
+   WHERE model = 'Boeing 767-300'
+   UNION ALL SELECT a.model,
+                    41*a.range/136 cost_per_minute
+   FROM dst_project.aircrafts a
+   WHERE model = 'Airbus A320-200'
+   UNION ALL SELECT a.model,
+                    41*a.range/98 cost_per_minute
+   FROM dst_project.aircrafts a
+   WHERE model = 'Airbus A321-200'
+   UNION ALL SELECT a.model,
+                    41*a.range/172 cost_per_minute
+   FROM dst_project.aircrafts a
+   WHERE model = 'Airbus A319-100'
+   UNION ALL SELECT a.model,
+                    41*a.range/480 cost_per_minute
+   FROM dst_project.aircrafts a
+   WHERE model = 'Cessna 208 Caravan'
+   UNION ALL SELECT a.model,
+                    41*a.range/150 cost_per_minute
+   FROM dst_project.aircrafts a
+   WHERE model = 'Bombardier CRJ-200'),
+   avg_profit AS
+  (SELECT 0 flight_id,
+          'All flights' voyage,
+          'All flights' model,
+          0 total_minutes,
+          avg(oaf.sum_proceeds/oaf.total_minutes - fc.cost_per_minute) net_profit,
+          0 unoccupied_seats
+   FROM original_all_flights oaf
+   JOIN fuel_all_cost fc ON oaf.model = fc.model), 
+/* В итоге мы получили среднюю прибыль в минуту за 2017 год среди всех рейсов,
+она равна примерно 7300 рублей.
+Теперь выберем только зимние рейся из Анапы*/ 
+   anapa_winter AS
+  (SELECT f.flight_id,
+          f.aircraft_code,
+          f.departure_airport,
+          f.arrival_airport,
+          f.scheduled_arrival-f.scheduled_departure dif_time
+   FROM dst_project.flights f
+   WHERE f.departure_airport = 'AAQ'
+     AND (date_trunc('month', scheduled_departure) in ('2017-01-01',
+                                                       '2017-02-01',
+                                                       '2017-12-01'))
+     AND status not in ('Cancelled') ),
+   original_flights AS
+  (SELECT aw.flight_id,
+          ad.city::text || '-' || ar.city::text voyage,
+          extract(MINUTE
+                  FROM aw.dif_time) + extract(HOUR
+                                              FROM aw.dif_time)*60 total_minutes,
+          sum(tf.amount) sum_proceeds,
+          a.model
+   FROM anapa_winter aw
+   JOIN dst_project.airports ad ON aw.departure_airport = ad.airport_code
+   JOIN dst_project.airports ar ON aw.arrival_airport = ar.airport_code
+   JOIN dst_project.ticket_flights tf ON aw.flight_id = tf.flight_id 
+/*После inner join с ticket_flights рейсов осталось 118 из 127,
+судя по всему, информации о этих 9 рейсах там нет.*/
+   JOIN dst_project.aircrafts a ON aw.aircraft_code = a.aircraft_code
+   GROUP BY aw.flight_id,
+            voyage,
+            total_minutes,
+            a.model
+   ORDER BY sum_proceeds), 
+/*далее рассчитаем цену за минуту полета самолета, цену за килограм топлива я взял равной
+ 41 рублям, такая цена указана на сайте favt.gov.ru в Анапе в январе 2017 года */ 
+   fuel_cost AS
+  (SELECT a.model,
+          41*a.range/106 cost_per_minute
+   FROM dst_project.aircrafts a
+   WHERE model = 'Sukhoi Superjet-100'
+   UNION ALL SELECT a.model,
+                    41*a.range/105 cost_per_minute
+   FROM dst_project.aircrafts a
+   WHERE model = 'Boeing 737-300'), 
+/*Количество мест в Boeing 737-300 149,
+в то время как в Sukhoi Superjet-100 103 места */ 
+   unoccupied_info AS
+  (SELECT aw.flight_id,
+          a.model,
+          (103 - count(tf.amount)) unoccupied_seats
+   FROM anapa_winter aw
+   JOIN dst_project.ticket_flights tf ON aw.flight_id = tf.flight_id
+   JOIN dst_project.aircrafts a ON aw.aircraft_code = a.aircraft_code
+   WHERE a.model = 'Sukhoi Superjet-100'
+   GROUP BY aw.flight_id,
+            a.model
+   UNION ALL SELECT aw.flight_id,
+                    a.model,
+                    (149 - count(tf.amount)) unoccupied_seats
+   FROM anapa_winter aw
+   JOIN dst_project.ticket_flights tf ON aw.flight_id = tf.flight_id
+   JOIN dst_project.aircrafts a ON aw.aircraft_code = a.aircraft_code
+   WHERE a.model = 'Boeing 737-300'
+   GROUP BY aw.flight_id,
+            a.model)
+SELECT ofl.flight_id,
+       ofl.voyage,
+       ofl.model,
+       ofl.total_minutes,
+       ofl.sum_proceeds/ofl.total_minutes - fc.cost_per_minute net_profit,
+       ui.unoccupied_seats
+FROM original_flights ofl
+JOIN fuel_cost fc ON ofl.model = fc.model
+JOIN unoccupied_info ui ON ofl.flight_id = ui.flight_id
+UNION ALL SELECT *
+FROM avg_profit ap
+ORDER BY net_profit,
+         unoccupied_seats DESC 
+/*В результатаемы мы получили таблицу c номером рейса, направлением полета, 
+моделью самолета, временем полета, относительной выгодой:цена билетов минус стоимость топлива в минуту полета
+и количеством незанятых мест. Также к общей таблице я привязал среднюю прибыль в минуту за все рейсы 2017г.
+Из таблицы видно, что самые прибыльные отличаются от наименее прибыльных почти в 2 раза.
+Средняя прибыл равняется примерно 14000 рублей в минуту.
+Из-за нехватки данных о других тратах на каждый рейс, таких как: стоимость стоянки,
+обслуживания самолета, зарплатах персонала, дотации государства итд...трудно судить о прибыльности
+конкретного рейса. Впрочем, исходя из того, что средняя прибыль в минуту среди всех
+рейсов за 2017 год равняется 7300 рублям, можно судить о том, что даже самые
+наимее прибыльные рейсы из Анапы приносят прибыль выше средней за год.
+Зимой из Анапы летают два вида самолетов: Суперджет и Боинг 737. В данных этой таблицы видно,
+ что у Боинга есть 7 рейсов, пассажиры в котором уместились бы и в Суперджет, так что от данных рейсов целесообразно не отказаться совсем, а использовать самолеты меньшей вместимостью.
+ Та же ситуация и с Суперджетом. */
+
+Ссылка на презентацию:
+https://drive.google.com/file/d/1wtNEHAtgmc9FOQ2A2iVvhxD4pO--A8fa/view?usp=sharing
